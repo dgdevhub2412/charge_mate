@@ -1,11 +1,14 @@
 package dgdevhub.charge_mate.charge_mate
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.media.AudioAttributes
 import android.media.Ringtone
 import android.media.RingtoneManager
 import android.net.Uri
+import android.os.BatteryManager
 import android.os.Build
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -19,6 +22,32 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "charge_mate/battery").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getBatteryStats" -> {
+                    try {
+                        val bm = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+                        val currentNowMicroAmps = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW).toLong()
+                        val intent = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                        val voltageMilliVolts = intent?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0) ?: 0
+                        val temperatureTenths = intent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) ?: 0
+                        val temperatureCelsius = temperatureTenths / 10.0
+
+                        result.success(mapOf(
+                            "currentNow" to currentNowMicroAmps,
+                            "voltage" to voltageMilliVolts,
+                            "temperature" to temperatureCelsius
+                        ))
+                    } catch (e: Exception) {
+                        result.error("ERROR", e.message, null)
+                    }
+                }
+                else -> {
+                    result.notImplemented()
+                }
+            }
+        }
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {

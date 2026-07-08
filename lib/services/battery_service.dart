@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:battery_plus/battery_plus.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'alarm_service.dart';
@@ -99,6 +100,22 @@ class BatteryService {
         isRinging: AlarmService.isPlaying,
       ));
     }
+  }
+
+  static const MethodChannel _batteryChannel = MethodChannel('charge_mate/battery');
+
+  // Fetch native battery statistics (Current, Voltage, Temperature)
+  static Future<Map<String, dynamic>?> getNativeBatteryStats() async {
+    try {
+      final Map<dynamic, dynamic>? stats = 
+          await _batteryChannel.invokeMethod<Map<dynamic, dynamic>>('getBatteryStats');
+      if (stats != null) {
+        return Map<String, dynamic>.from(stats);
+      }
+    } catch (e) {
+      debugPrint('Error getting native battery stats: $e');
+    }
+    return null;
   }
 }
 

@@ -36,6 +36,18 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   String? _customAudioPath;
   String? _customAudioTitle;
 
+  // Charging session tracking
+  DateTime? _chargeStartTime;
+  int? _chargeStartLevel;
+
+  // Live stats from native
+  double _voltage = 0.0;
+  double _current = 0.0;
+  double _temperature = 0.0;
+  double _wattage = 0.0;
+
+  Timer? _statsTimer;
+
   @override
   void initState() {
     super.initState();
@@ -47,6 +59,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     _loadSettings();
     _requestPermissionsAndStartService();
     _initBatteryMonitoring();
+
+    // Start battery stats timer
+    _updateNativeStats();
+    _statsTimer = Timer.periodic(const Duration(seconds: 4), (timer) {
+      _updateNativeStats();
+    });
   }
 
   Future<void> _requestPermissionsAndStartService() async {
@@ -100,17 +118,35 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       _isRinging = AlarmService.isPlaying;
     });
 
+    final initialCharging = _batteryState == BatteryState.charging || _batteryState == BatteryState.full;
+    if (initialCharging) {
+      _chargeStartTime = DateTime.now();
+      _chargeStartLevel = _currentLevel;
+    }
+
     if (_isRinging) {
       _bellController.repeat(reverse: true);
     }
 
     // Listen for live updates
     _batterySubscription = BatteryService.statusStream.listen((status) {
+      final wasCharging = _batteryState == BatteryState.charging || _batteryState == BatteryState.full;
+      final isCharging = status.state == BatteryState.charging || status.state == BatteryState.full;
+
       setState(() {
         _currentLevel = status.level;
         _batteryState = status.state;
         _isRinging = status.isRinging;
       });
+
+      if (isCharging && !wasCharging) {
+        _chargeStartTime = DateTime.now();
+        _chargeStartLevel = _currentLevel;
+        _updateNativeStats();
+      } else if (!isCharging) {
+        _chargeStartTime = null;
+        _chargeStartLevel = null;
+      }
 
       if (_isRinging && !_bellController.isAnimating) {
         _bellController.repeat(reverse: true);
@@ -122,6 +158,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   @override
   void dispose() {
+    _statsTimer?.cancel();
     FlutterForegroundTask.removeTaskDataCallback(_onReceiveTaskData);
     _batterySubscription?.cancel();
     _bellController.dispose();
@@ -143,22 +180,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           _customAudioPath = path;
         });
         FlutterForegroundTask.sendDataToTask('syncSettings');
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Custom ringtone set: ${result.files.single.name}'),
-            backgroundColor: AppColors.success,
-          ),
-        );
+        // SnackBar removed
       }
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error picking file: $e'),
-          backgroundColor: AppColors.alert,
-        ),
-      );
+      debugPrint('Error picking file: $e');
     }
   }
 
@@ -171,13 +196,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       _customAudioTitle = null;
     });
     FlutterForegroundTask.sendDataToTask('syncSettings');
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Reverted to default beep alert'),
-        backgroundColor: AppColors.success,
-      ),
-    );
+    // SnackBar removed
   }
 
   // Format filename from path
@@ -207,13 +226,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               _customAudioTitle = title;
             });
             FlutterForegroundTask.sendDataToTask('syncSettings');
-            if (!mounted) return;
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Selected alarm sound: $title'),
-                backgroundColor: AppColors.success,
-              ),
-            );
+            // SnackBar removed
           }
         }
       } else {
@@ -242,13 +255,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     });
     _bellController.repeat(reverse: true);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Testing alarm & vibration settings for 5 seconds...'),
-        duration: Duration(seconds: 3),
-        backgroundColor: AppColors.surfaceLight,
-      ),
-    );
+    // SnackBar removed
     AlarmService.testAlarm();
 
     // After 5s check again to reset UI
@@ -262,6 +269,198 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         }
       }
     });
+  }
+
+  void _updateNativeStats() async {
+    final isCharging = _batteryState == BatteryState.charging || _batteryState == BatteryState.full;
+    if (!isCharging) {
+      if (mounted) {
+        setState(() {
+          _voltage = 0.0;
+          _current = 0.0;
+          _wattage = 0.0;
+        });
+      }
+      return;
+    }
+
+    final stats = await BatteryService.getNativeBatteryStats();
+    if (stats != null && mounted) {
+      final int rawCurrent = stats['currentNow'] as int? ?? 0;
+      final int rawVoltage = stats['voltage'] as int? ?? 0;
+      final double temp = stats['temperature'] as double? ?? 0.0;
+
+      final double currentMa = (rawCurrent.abs()) / 1000.0;
+      final double voltageV = rawVoltage / 1000.0;
+      final double watts = voltageV * (currentMa / 1000.0);
+
+      setState(() {
+        _voltage = voltageV;
+        _current = currentMa;
+        _temperature = temp;
+        _wattage = watts;
+      });
+    }
+  }
+
+  String _getRemainingTimeText() {
+    final isCharging = _batteryState == BatteryState.charging || _batteryState == BatteryState.full;
+    if (!isCharging) {
+      return 'Not charging';
+    }
+    if (_currentLevel >= _targetLevel) {
+      return 'Target level reached';
+    }
+
+    double minutesPerPercent = 1.5;
+
+    if (_chargeStartTime != null && _chargeStartLevel != null) {
+      final elapsed = DateTime.now().difference(_chargeStartTime!);
+      final levelDiff = _currentLevel - _chargeStartLevel!;
+      if (levelDiff > 0 && elapsed.inSeconds > 10) {
+        minutesPerPercent = elapsed.inSeconds / 60.0 / levelDiff;
+      }
+    }
+
+    final remainingPercent = _targetLevel - _currentLevel;
+    final remainingMinutes = (remainingPercent * minutesPerPercent).round();
+
+    if (remainingMinutes <= 0) {
+      return 'Almost reached';
+    } else if (remainingMinutes < 60) {
+      return '$remainingMinutes min remaining';
+    } else {
+      final hours = remainingMinutes ~/ 60;
+      final mins = remainingMinutes % 60;
+      return '$hours h $mins m remaining';
+    }
+  }
+
+  Widget _buildChargingStatsCard() {
+    final isCharging = _batteryState == BatteryState.charging || _batteryState == BatteryState.full;
+    final remainingText = _getRemainingTimeText();
+
+    if (!isCharging) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppColors.border, width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withValues(alpha: 0.05),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'CHARGING ESTIMATE',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.primary,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    remainingText,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.bolt_rounded,
+                  color: AppColors.primary,
+                  size: 28,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Divider(color: AppColors.border.withValues(alpha: 0.5), height: 1),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildStatItem(
+                icon: Icons.flash_on_rounded,
+                value: _wattage > 0.0 ? '${_wattage.toStringAsFixed(1)} W' : '-- W',
+                label: 'Power',
+                color: AppColors.accent,
+              ),
+              _buildStatItem(
+                icon: Icons.electric_bolt_rounded,
+                value: _current > 0.0 ? '${_current.round()} mA' : '-- mA',
+                label: 'Current',
+                color: AppColors.secondary,
+              ),
+              _buildStatItem(
+                icon: Icons.thermostat_rounded,
+                value: _temperature > 0.0 ? '${_temperature.toStringAsFixed(1)} °C' : '-- °C',
+                label: 'Temp',
+                color: _temperature > 40.0 ? AppColors.alert : AppColors.success,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatItem({
+    required IconData icon,
+    required String value,
+    required String label,
+    required Color color,
+  }) {
+    return Column(
+      children: [
+        Icon(icon, color: color, size: 22),
+        const SizedBox(height: 6),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: AppColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 11,
+            color: AppColors.textSecondary,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -327,15 +526,31 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                             ),
                           ],
                         ),
-                        // Flashing bell if ringing, else normal logo logo
+                        // Flashing bell and STOP button if ringing, else normal logo
                         _isRinging
-                            ? RotationTransition(
-                                turns: Tween(begin: -0.1, end: 0.1).animate(_bellController),
-                                child: const Icon(
-                                  Icons.notifications_active,
-                                  color: AppColors.secondary,
-                                  size: 32,
-                                ),
+                            ? Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  RotationTransition(
+                                    turns: Tween(begin: -0.1, end: 0.1).animate(_bellController),
+                                    child: const Icon(
+                                      Icons.notifications_active,
+                                      color: AppColors.secondary,
+                                      size: 32,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  IconButton(
+                                    onPressed: _dismissAlarm,
+                                    icon: const Icon(
+                                      Icons.stop_circle_rounded,
+                                      color: AppColors.alert,
+                                      size: 32,
+                                    ),
+                                    tooltip: 'Stop Alarm',
+                                    padding: EdgeInsets.zero,
+                                  ),
+                                ],
                               )
                             : Image.asset(
                                 'assets/charge_mate_logo.png',
@@ -357,6 +572,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       isCharging: isCharging,
                     ),
                     const SizedBox(height: 40),
+
+                    // Live Charging Stats Card
+                    _buildChargingStatsCard(),
+                    if (isCharging) const SizedBox(height: 20),
 
                     // Target Slider Card
                     _buildTargetSliderCard(),
