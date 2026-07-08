@@ -22,12 +22,12 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
   late AnimationController _bellController;
   StreamSubscription<BatteryStatus>? _batterySubscription;
-  
+
   // Local state mirrored from services
   int _currentLevel = 50;
   BatteryState _batteryState = BatteryState.unknown;
   bool _isRinging = false;
-  
+
   // Settings values
   int _targetLevel = 80;
   bool _alarmEnabled = true;
@@ -47,6 +47,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   double _wattage = 0.0;
 
   Timer? _statsTimer;
+  int _currentIndex = 0;
 
   @override
   void initState() {
@@ -70,10 +71,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   Future<void> _requestPermissionsAndStartService() async {
     // Request permission for Android 13+ notifications
     await FlutterForegroundTask.requestNotificationPermission();
-    
+
     // Start persistent background service
     await BackgroundService.start();
-    
+
     // Register callback to listen for battery data from task isolate
     FlutterForegroundTask.addTaskDataCallback(_onReceiveTaskData);
   }
@@ -110,7 +111,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   // Initialize and subscribe to battery monitoring stream
   void _initBatteryMonitoring() async {
     await BatteryService.init();
-    
+
     // Set initial values
     setState(() {
       _currentLevel = BatteryService.currentLevel;
@@ -213,11 +214,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       if (Platform.isAndroid) {
         const platform = MethodChannel('charge_mate/ringtone_picker');
         final Map<dynamic, dynamic>? result = await platform.invokeMethod('pickRingtone');
-        
+
         if (result != null) {
           final uri = result['uri'] as String?;
           final title = result['title'] as String?;
-          
+
           if (uri != null) {
             await StorageService.setCustomAudioPath(uri);
             await StorageService.setCustomAudioTitle(title);
@@ -346,7 +347,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(horizontal: 18,vertical: 16),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(24),
@@ -376,7 +377,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       letterSpacing: 1.5,
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 3),
                   Text(
                     remainingText,
                     style: const TextStyle(
@@ -388,22 +389,22 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 ],
               ),
               Container(
-                padding: const EdgeInsets.all(10),
+                padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.1),
+                  color: isCharging? Colors.amber.withValues(alpha: 0.1) : AppColors.primary.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
+                child:  Icon(
                   Icons.bolt_rounded,
-                  color: AppColors.primary,
+                  color: isCharging? Colors.amber :AppColors.primary,
                   size: 28,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           Divider(color: AppColors.border.withValues(alpha: 0.5), height: 1),
-          const SizedBox(height: 16),
+          const SizedBox(height: 15),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
@@ -463,167 +464,364 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildBatteryTab() {
     final isCharging = _batteryState == BatteryState.charging || _batteryState == BatteryState.full;
-    
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: AppColors.backgroundGradient,
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          // Top App Header
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Charge Mate',
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w900,
+                      color: AppColors.textPrimary,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          color: AppColors.primary,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'Background Monitoring Active',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              // Flashing bell and STOP button if ringing, else normal logo
+              _isRinging
+                  ? Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        RotationTransition(
+                          turns: Tween(begin: -0.1, end: 0.1).animate(_bellController),
+                          child: const Icon(
+                            Icons.notifications_active,
+                            color: AppColors.secondary,
+                            size: 32,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        IconButton(
+                          onPressed: _dismissAlarm,
+                          icon: const Icon(
+                            Icons.stop_circle_rounded,
+                            color: AppColors.alert,
+                            size: 32,
+                          ),
+                          tooltip: 'Stop Alarm',
+                          padding: EdgeInsets.zero,
+                        ),
+                      ],
+                    )
+                  : Image.asset(
+                      'assets/charge_mate_logo.png',
+                      width: 44,
+                      height: 44,
+                      errorBuilder: (context, error, stackTrace) => const CircleAvatar(
+                        backgroundColor: AppColors.surface,
+                        radius: 22,
+                        child: Icon(Icons.bolt, color: AppColors.primary),
+                      ),
+                    ),
+            ],
           ),
-        ),
-        child: SafeArea(
+          const SizedBox(height: 30),
+
+          // Custom Circular Battery Gauge
+          BatteryIndicator(
+            level: _currentLevel,
+            isCharging: isCharging,
+          ),
+          const SizedBox(height: 25),
+
+          // Live Charging Stats Card
+          _buildChargingStatsCard(),
+          if (isCharging)
+            const SizedBox(height: 20),
+
+          // Target Slider Card
+          _buildTargetSliderCard(),
+          const SizedBox(height: 100),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSettingsTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Settings',
+            style: TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.w900,
+              color: AppColors.textPrimary,
+              letterSpacing: -0.5,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Configure your charge alerts & options',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 30),
+
+          // Action Controls Card (Switch Toggles)
+          _buildSettingsCard(),
+          const SizedBox(height: 20),
+
+          // Custom Sound Selector Card
+          _buildSoundSelectorCard(),
+          const SizedBox(height: 30),
+
+          // Test Action Button
+          SizedBox(
+            width: double.infinity,
+            height: 56,
+            child: ElevatedButton.icon(
+              onPressed: _isRinging ? null : _testAlarmSettings,
+              icon: const Icon(Icons.volume_up_rounded, color: AppColors.background),
+              label: const Text(
+                'Test Alert Settings',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.background,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                elevation: 8,
+                shadowColor: AppColors.primary.withValues(alpha: 0.4),
+              ),
+            ),
+          ),
+          const SizedBox(height: 80),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBottomNavBar() {
+    return Container(
+      color: Colors.transparent,
+      child: SafeArea(
+        bottom: true,
+        child: Container(
+          height: 65,
+          decoration: BoxDecoration(
+            color: AppColors.surface.withValues(alpha: 0.92),
+            borderRadius: BorderRadius.circular(35),
+            border: Border.all(
+              color: AppColors.border.withValues(alpha: 0.8),
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.35),
+                blurRadius: 16,
+                spreadRadius: 2,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
           child: Stack(
             children: [
-              // Main Scrollable Content
-              SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    // Top App Header
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Charge Mate',
-                              style: TextStyle(
-                                fontSize: 28,
-                                fontWeight: FontWeight.w900,
-                                color: AppColors.textPrimary,
-                                letterSpacing: -0.5,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Row(
-                              children: [
-                                Container(
-                                  width: 8,
-                                  height: 8,
-                                  decoration: const BoxDecoration(
-                                    color: AppColors.primary,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                const Text(
-                                  'Background Monitoring Active',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppColors.textSecondary,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
+              // Sliding Card Background Selector
+              AnimatedAlign(
+                duration: const Duration(milliseconds: 250),
+                curve: Curves.easeInOutCubic,
+                alignment: _currentIndex == 0
+                    ? const Alignment(-0.92, 0.0)
+                    : const Alignment(0.92, 0.0),
+                child: FractionallySizedBox(
+                  widthFactor: 0.46, // Exactly slightly less than half width
+                  heightFactor: 0.76, // Exactly slightly less than full height
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          AppColors.primary.withValues(alpha: 0.18),
+                          AppColors.primary.withValues(alpha: 0.06),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(25),
+                      border: Border.all(
+                        color: AppColors.primary.withValues(alpha: 0.35),
+                        width: 1.5,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.primary.withValues(alpha: 0.08),
+                          blurRadius: 10,
+                          spreadRadius: 1,
                         ),
-                        // Flashing bell and STOP button if ringing, else normal logo
-                        _isRinging
-                            ? Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  RotationTransition(
-                                    turns: Tween(begin: -0.1, end: 0.1).animate(_bellController),
-                                    child: const Icon(
-                                      Icons.notifications_active,
-                                      color: AppColors.secondary,
-                                      size: 32,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  IconButton(
-                                    onPressed: _dismissAlarm,
-                                    icon: const Icon(
-                                      Icons.stop_circle_rounded,
-                                      color: AppColors.alert,
-                                      size: 32,
-                                    ),
-                                    tooltip: 'Stop Alarm',
-                                    padding: EdgeInsets.zero,
-                                  ),
-                                ],
-                              )
-                            : Image.asset(
-                                'assets/charge_mate_logo.png',
-                                width: 44,
-                                height: 44,
-                                errorBuilder: (context, error, stackTrace) => const CircleAvatar(
-                                  backgroundColor: AppColors.surface,
-                                  radius: 22,
-                                  child: Icon(Icons.bolt, color: AppColors.primary),
-                                ),
-                              ),
                       ],
                     ),
-                    const SizedBox(height: 40),
-
-                    // Custom Circular Battery Gauge
-                    BatteryIndicator(
-                      level: _currentLevel,
-                      isCharging: isCharging,
-                    ),
-                    const SizedBox(height: 40),
-
-                    // Live Charging Stats Card
-                    _buildChargingStatsCard(),
-                    if (isCharging) const SizedBox(height: 20),
-
-                    // Target Slider Card
-                    _buildTargetSliderCard(),
-                    const SizedBox(height: 20),
-
-                    // Action Controls Card (Switch Toggles)
-                    _buildSettingsCard(),
-                    const SizedBox(height: 20),
-
-                    // Custom Sound Selector Card
-                    _buildSoundSelectorCard(),
-                    const SizedBox(height: 40),
-
-                    // Test Action Button
-                    SizedBox(
-                      width: double.infinity,
-                      height: 56,
-                      child: ElevatedButton.icon(
-                        onPressed: _isRinging ? null : _testAlarmSettings,
-                        icon: const Icon(Icons.volume_up_rounded, color: AppColors.background),
-                        label: const Text(
-                          'Test Alert Settings',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.background,
+                  ),
+                ),
+              ),
+              // Tab Items Row
+              Positioned.fill(
+                child: Row(
+                  children: [
+                    // Battery Tab Button
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _currentIndex = 0;
+                          });
+                        },
+                        behavior: HitTestBehavior.opaque,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 20),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              AnimatedRotation(
+                                duration: const Duration(milliseconds: 300),
+                                turns: _currentIndex == 0 ? 0.0 : 0.25,
+                                child: Icon(
+                                  Icons.battery_charging_full_rounded,
+                                  color: _currentIndex == 0 ? AppColors.primary : AppColors.textSecondary,
+                                  size: 22,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              AnimatedDefaultTextStyle(
+                                duration: const Duration(milliseconds: 200),
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: _currentIndex == 0 ? FontWeight.w900 : FontWeight.w600,
+                                  color: _currentIndex == 0 ? AppColors.primary : AppColors.textSecondary,
+                                  letterSpacing: 0.2,
+                                ),
+                                child: const Text('Battery'),
+                              ),
+                            ],
                           ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          elevation: 8,
-                          shadowColor: AppColors.primary.withValues(alpha: 0.4),
                         ),
                       ),
                     ),
-                    const SizedBox(height: 100), // Spacing for dismissal overlay
+                    // Settings Tab Button
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _currentIndex = 1;
+                          });
+                        },
+                        behavior: HitTestBehavior.opaque,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 20),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              AnimatedRotation(
+                                duration: const Duration(milliseconds: 200),
+                                turns: _currentIndex == 1 ? 0.0 : 0.08,
+                                child: Icon(
+                                  Icons.settings_rounded,
+                                  color: _currentIndex == 1 ? AppColors.primary : AppColors.textSecondary,
+                                  size: 22,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              AnimatedDefaultTextStyle(
+                                duration: const Duration(milliseconds: 200),
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: _currentIndex == 1 ? FontWeight.w900 : FontWeight.w600,
+                                  color: _currentIndex == 1 ? AppColors.primary : AppColors.textSecondary,
+                                  letterSpacing: 0.2,
+                                ),
+                                child: const Text('Settings'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
-
-              // Ringing Alert Overlay (Slided in or floating bottom sheet)
-              if (_isRinging) _buildRingingOverlay(),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      extendBody: true, // Let the body content extend behind the transparent bottom bar
+      body: Stack(
+        children: [
+          Container(
+            height: MediaQuery.of(context).size.height,
+            decoration: const BoxDecoration(
+                gradient: LinearGradient(colors: AppColors.backgroundGradient,
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter)
+            ),
+            child: SafeArea(
+              bottom: false,
+              child: IndexedStack(
+                index: _currentIndex,
+                children: [
+                  _buildBatteryTab(),
+                  _buildSettingsTab(),
+                ],
+              ),
+            ),
+          ),
+          Positioned(
+              left: 24,
+              right: 24,
+              bottom: 16,
+              child: _buildBottomNavBar()),
+
+          if (_isRinging) _buildRingingOverlay(),
+        ],
       ),
     );
   }
@@ -632,7 +830,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   Widget _buildTargetSliderCard() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(horizontal: 18,vertical: 16),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(24),
@@ -653,7 +851,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
                 decoration: BoxDecoration(
                   color: AppColors.primary.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(12),
@@ -669,7 +867,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           Text(
             'App will trigger an alert when battery charge reaches $_targetLevel%.',
             style: const TextStyle(
@@ -677,7 +875,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               color: AppColors.textSecondary,
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
           SliderTheme(
             data: SliderThemeData(
               trackHeight: 6,
@@ -922,17 +1120,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   // Widget: Flashing Ringing Overlay
   Widget _buildRingingOverlay() {
     return Positioned(
-      bottom: 0,
-      left: 0,
-      right: 0,
+      bottom: 10,
+      left: 10,
+      right: 10,
       child: Container(
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
           color: AppColors.surface,
-          borderRadius: const BorderRadius.only(
-            topLeft: Radius.circular(32),
-            topRight: Radius.circular(32),
-          ),
+          borderRadius: const BorderRadius.all(Radius.circular(32)),
           boxShadow: [
             BoxShadow(
               color: AppColors.secondary.withValues(alpha: 0.25),

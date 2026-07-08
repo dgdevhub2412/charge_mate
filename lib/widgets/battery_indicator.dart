@@ -99,7 +99,7 @@ class _BatteryIndicatorState extends State<BatteryIndicator> with SingleTickerPr
                     ),
                   ),
                   Text(
-                    widget.isCharging ? 'CHARGING' : 'DISCHARGING',
+                    widget.isCharging ? 'CHARGING' : 'ON BATTERY',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w800,

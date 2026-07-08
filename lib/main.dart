@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'app_colors.dart';
 import 'screens/home_screen.dart';
@@ -13,6 +14,15 @@ void main() async {
   
   await StorageService.init();
   await BackgroundService.init();
+
+  // Make system status bar and bottom navigation bar transparent for edge-to-edge layout
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    systemNavigationBarColor: Colors.transparent,
+    systemNavigationBarDividerColor: Colors.transparent,
+    systemNavigationBarIconBrightness: Brightness.light,
+    statusBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.light,
+  ));
   
   runApp(const MyApp());
 }
