@@ -5,6 +5,10 @@ import 'package:battery_plus/battery_plus.dart';
 import 'storage_service.dart';
 import 'alarm_service.dart';
 
+const List<NotificationButton> _notificationButtons = [
+  NotificationButton(id: 'stop_alarm', text: 'Stop Alarm'),
+];
+
 @pragma('vm:entry-point')
 void startCallback() {
   FlutterForegroundTask.setTaskHandler(BatteryMonitorTaskHandler());
@@ -54,6 +58,7 @@ class BatteryMonitorTaskHandler extends TaskHandler {
           FlutterForegroundTask.updateService(
             notificationTitle: 'Charge Mate is active',
             notificationText: 'Monitoring battery in the background...',
+            notificationButtons: [], // No buttons when not ringing
           );
           
           // Force status update back to UI isolate
@@ -124,6 +129,7 @@ class BatteryMonitorTaskHandler extends TaskHandler {
           FlutterForegroundTask.updateService(
             notificationTitle: 'Charge Mate - ALARM!',
             notificationText: '$alertReason. Unplug charger.',
+            notificationButtons: _notificationButtons, // Show Stop Alarm button
           );
         }
       } else if (state == BatteryState.discharging) {
@@ -136,6 +142,7 @@ class BatteryMonitorTaskHandler extends TaskHandler {
           FlutterForegroundTask.updateService(
             notificationTitle: 'Charge Mate is active',
             notificationText: 'Monitoring battery in the background...',
+            notificationButtons: [], // Remove Stop Alarm button
           );
         }
       }
@@ -168,6 +175,7 @@ class BatteryMonitorTaskHandler extends TaskHandler {
       FlutterForegroundTask.updateService(
         notificationTitle: 'Charge Mate is active',
         notificationText: 'Monitoring battery in the background...',
+        notificationButtons: [], // Remove button
       );
       
       // Force status update back to UI
@@ -184,6 +192,7 @@ class BatteryMonitorTaskHandler extends TaskHandler {
       FlutterForegroundTask.updateService(
         notificationTitle: 'Charge Mate - ALARM!',
         notificationText: 'Alarm triggered manually.',
+        notificationButtons: _notificationButtons, // Show button
       );
       
       final level = await _battery.batteryLevel;
@@ -198,6 +207,29 @@ class BatteryMonitorTaskHandler extends TaskHandler {
       await StorageService.init();
     }
   }
+
+  @override
+  void onNotificationButtonPressed(String id) async {
+    if (id == 'stop_alarm') {
+      await AlarmService.stopAlarm();
+      
+      // Update notification back to normal
+      FlutterForegroundTask.updateService(
+        notificationTitle: 'Charge Mate is active',
+        notificationText: 'Monitoring battery in the background...',
+        notificationButtons: [], // Remove button
+      );
+      
+      // Force status update back to UI
+      final level = await _battery.batteryLevel;
+      final state = await _battery.batteryState;
+      FlutterForegroundTask.sendDataToMain({
+        'level': level,
+        'state': state.index,
+        'isRinging': false,
+      });
+    }
+  }
 }
 
 class BackgroundService {
@@ -205,11 +237,11 @@ class BackgroundService {
   static Future<void> init() async {
     FlutterForegroundTask.init(
       androidNotificationOptions: AndroidNotificationOptions(
-        channelId: 'charge_mate_foreground_service',
+        channelId: 'charge_mate_foreground_service_v2',
         channelName: 'Charge Mate Monitor',
         channelDescription: 'Monitors battery charge to alert when full',
-        channelImportance: NotificationChannelImportance.LOW,
-        priority: NotificationPriority.LOW,
+        channelImportance: NotificationChannelImportance.HIGH,
+        priority: NotificationPriority.HIGH,
       ),
       iosNotificationOptions: const IOSNotificationOptions(
         showNotification: true,
@@ -233,6 +265,7 @@ class BackgroundService {
       serviceId: 256,
       notificationTitle: 'Charge Mate is active',
       notificationText: 'Monitoring battery in the background...',
+      notificationButtons: [], // No buttons initially
       callback: startCallback,
     );
     return result is ServiceRequestSuccess;
