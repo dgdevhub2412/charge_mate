@@ -151,15 +151,14 @@ class BatteryPainter extends CustomPainter {
 
     // Gradient logic: from green to bright cyan (charging) or just green/yellow
     final Rect rect = Rect.fromCircle(center: center, radius: radius);
-    
+
     Color progressColor;
     if (level < 20) {
       progressColor = AppColors.alert;
-    } else if (level < 80) {
-      progressColor = AppColors.primary;
     } else {
-      progressColor = AppColors.secondary;
+      progressColor = AppColors.primary;
     }
+
 
     if (isCharging) {
       progressPaint.shader = SweepGradient(
