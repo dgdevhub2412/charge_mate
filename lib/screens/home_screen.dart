@@ -340,10 +340,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   Widget _buildChargingStatsCard() {
     final isCharging = _batteryState == BatteryState.charging || _batteryState == BatteryState.full;
     final remainingText = _getRemainingTimeText();
-
-    if (!isCharging) {
-      return const SizedBox.shrink();
-    }
+    //
+    // if (!isCharging) {
+    //   return const SizedBox.shrink();
+    // }
 
     return Container(
       width: double.infinity,
@@ -560,7 +560,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
           // Live Charging Stats Card
           _buildChargingStatsCard(),
-          if (isCharging)
+          // if (isCharging)
             const SizedBox(height: 20),
 
           // Target Slider Card
@@ -630,19 +630,17 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               ),
             ),
           ),
-          const SizedBox(height: 80),
+          const SizedBox(height: 150),
         ],
       ),
     );
   }
 
   Widget _buildBottomNavBar() {
-    return Container(
-      color: Colors.transparent,
-      child: SafeArea(
-        bottom: true,
-        child: Container(
-          height: 65,
+    return SafeArea(
+      bottom: true,
+      child: Container(
+        height: 65,
           decoration: BoxDecoration(
             color: AppColors.surface.withValues(alpha: 0.92),
             borderRadius: BorderRadius.circular(35),
@@ -785,7 +783,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             ],
           ),
         ),
-      ),
     );
   }
 
