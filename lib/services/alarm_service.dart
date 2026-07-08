@@ -1,8 +1,9 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:vibration/vibration.dart';
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
+import 'package:my_ringtone_player/my_ringtone_player.dart';
 import 'storage_service.dart';
 
 class AlarmService {
@@ -10,12 +11,9 @@ class AlarmService {
   static VoidCallback? onStatusChanged;
   static bool _isPlaying = false;
   static Timer? _autoStopTimer;
+  static bool isBackgroundIsolate = false; // Flag to indicate if running in background isolate
 
   static bool get isPlaying => _isPlaying;
-
-  // Fallback alarm sound URL (from royalty-free public Google Actions sound library)
-  static const String defaultAlarmUrl = 'https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg';
-  static const MethodChannel _ringtoneChannel = MethodChannel('charge_mate/ringtone_picker');
 
   // Start the alarm and vibration asynchronously without blocking
   static Future<void> startAlarm() async {
@@ -50,11 +48,18 @@ class AlarmService {
     _autoStopTimer?.cancel();
     _autoStopTimer = null;
 
-    // Stop native system ringtone
+    // Stop native custom system ringtone via our local plugin
     try {
-      _ringtoneChannel.invokeMethod('stopRingtone');
+      await MyRingtonePlayer.stop();
     } catch (e) {
-      debugPrint('Error stopping native ringtone: $e');
+      debugPrint('Error stopping custom native ringtone: $e');
+    }
+
+    // Stop flutter_ringtone_player
+    try {
+      await FlutterRingtonePlayer().stop();
+    } catch (e) {
+      debugPrint('Error stopping ringtone player: $e');
     }
 
     // Stop audioplayers sound
@@ -89,23 +94,31 @@ class AlarmService {
       
       if (customPath != null && customPath.isNotEmpty) {
         if (customPath.startsWith('content://')) {
-          // Play system ringtone natively
-          await _ringtoneChannel.invokeMethod('playRingtone', {'uri': customPath});
+          // Play the selected custom system ringtone via our local plugin.
+          // This works in both foreground and background service isolates!
+          await MyRingtonePlayer.play(customPath);
         } else {
           // Play custom local file path
           await _audioPlayer.setReleaseMode(ReleaseMode.loop);
           await _audioPlayer.play(DeviceFileSource(customPath));
         }
       } else {
-        // Play default public sound URL
-        await _audioPlayer.setReleaseMode(ReleaseMode.loop);
-        await _audioPlayer.play(UrlSource(defaultAlarmUrl));
+        // Default sound: Play default system alarm sound offline (loud, ignores silent mode).
+        await FlutterRingtonePlayer().playAlarm(
+          looping: true,
+          asAlarm: true,
+          volume: 1.0,
+        );
       }
     } catch (e) {
       debugPrint('Error playing custom alarm: $e. Reverting to fallback.');
       try {
-        await _audioPlayer.setReleaseMode(ReleaseMode.loop);
-        await _audioPlayer.play(UrlSource(defaultAlarmUrl));
+        // Fallback: play default alarm sound natively
+        await FlutterRingtonePlayer().playAlarm(
+          looping: true,
+          asAlarm: true,
+          volume: 1.0,
+        );
       } catch (err) {
         debugPrint('Fallback alarm failed: $err');
       }

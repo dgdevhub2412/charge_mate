@@ -14,6 +14,11 @@ class StorageService {
     _prefs ??= await SharedPreferences.getInstance();
   }
 
+  // Reload SharedPreferences from disk (for isolate syncing)
+  static Future<void> reload() async {
+    await _prefs?.reload();
+  }
+
   // Target Level (1% to 100%)
   static int getTargetLevel() {
     return _prefs?.getInt(_keyTargetLevel) ?? 80;

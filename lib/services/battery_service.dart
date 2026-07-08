@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:battery_plus/battery_plus.dart';
-import 'storage_service.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'alarm_service.dart';
 
 class BatteryService {
@@ -57,15 +57,15 @@ class BatteryService {
   static void _handleStateChange(BatteryState state) async {
     await _checkBatteryLevel();
 
-    // If charger is unplugged (discharging), automatically stop the alarm
+    // If charger is unplugged (discharging), automatically stop the alarm in both isolates
     if (state == BatteryState.discharging) {
-      if (AlarmService.isPlaying) {
-        await AlarmService.stopAlarm();
-      }
+      await AlarmService.stopAlarm();
+      // Send command to stop background service alarm
+      FlutterForegroundTask.sendDataToTask('stopAlarm');
     }
   }
 
-  // Check battery level and trigger alarm if conditions are met
+  // Check battery level and notify listeners
   static Future<void> _checkBatteryLevel() async {
     try {
       _currentLevel = await _battery.batteryLevel;
@@ -75,16 +75,9 @@ class BatteryService {
 
       _notifyListeners();
 
-      // Check threshold
-      final targetLevel = StorageService.getTargetLevel();
-      final isCharging = _currentState == BatteryState.charging || _currentState == BatteryState.full;
-
-      if (isCharging && _currentLevel >= targetLevel) {
-        if (!AlarmService.isPlaying) {
-          await AlarmService.startAlarm();
-          _notifyListeners(); // Notify UI that alarm is now playing
-        }
-      }
+      // Note: We do NOT trigger AlarmService.startAlarm() in the main UI isolate here.
+      // This is now exclusively handled by the background task service (BatteryMonitorTaskHandler)
+      // to prevent dual-alarm conflicts.
     } catch (e) {
       debugPrint('Error checking battery level: $e');
     }

@@ -2,12 +2,14 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:battery_plus/battery_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import '../app_colors.dart';
 import '../services/storage_service.dart';
 import '../services/alarm_service.dart';
 import '../services/battery_service.dart';
+import '../services/background_service.dart';
 import '../widgets/battery_indicator.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -43,7 +45,36 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
 
     _loadSettings();
+    _requestPermissionsAndStartService();
     _initBatteryMonitoring();
+  }
+
+  Future<void> _requestPermissionsAndStartService() async {
+    // Request permission for Android 13+ notifications
+    await FlutterForegroundTask.requestNotificationPermission();
+    
+    // Start persistent background service
+    await BackgroundService.start();
+    
+    // Register callback to listen for battery data from task isolate
+    FlutterForegroundTask.addTaskDataCallback(_onReceiveTaskData);
+  }
+
+  void _onReceiveTaskData(dynamic data) {
+    if (data is Map<dynamic, dynamic>) {
+      setState(() {
+        _currentLevel = data['level'] as int;
+        final stateIndex = data['state'] as int;
+        _batteryState = BatteryState.values[stateIndex];
+        _isRinging = data['isRinging'] as bool;
+      });
+
+      if (_isRinging && !_bellController.isAnimating) {
+        _bellController.repeat(reverse: true);
+      } else if (!_isRinging && _bellController.isAnimating) {
+        _bellController.stop();
+      }
+    }
   }
 
   // Load configuration from local storage
@@ -91,6 +122,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   @override
   void dispose() {
+    FlutterForegroundTask.removeTaskDataCallback(_onReceiveTaskData);
     _batterySubscription?.cancel();
     _bellController.dispose();
     super.dispose();
@@ -110,6 +142,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         setState(() {
           _customAudioPath = path;
         });
+        FlutterForegroundTask.sendDataToTask('syncSettings');
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -137,6 +170,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       _customAudioPath = null;
       _customAudioTitle = null;
     });
+    FlutterForegroundTask.sendDataToTask('syncSettings');
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -172,6 +206,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               _customAudioPath = uri;
               _customAudioTitle = title;
             });
+            FlutterForegroundTask.sendDataToTask('syncSettings');
             if (!mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -193,6 +228,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   // Stop current ringing
   void _dismissAlarm() async {
     await AlarmService.stopAlarm();
+    FlutterForegroundTask.sendDataToTask('stopAlarm');
     setState(() {
       _isRinging = false;
     });
@@ -445,6 +481,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   _targetLevel = newTarget;
                 });
                 await StorageService.setTargetLevel(newTarget);
+                FlutterForegroundTask.sendDataToTask('syncSettings');
               },
             ),
           ),
@@ -481,6 +518,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 _alarmEnabled = value;
               });
               await StorageService.setAlarmEnabled(value);
+              FlutterForegroundTask.sendDataToTask('syncSettings');
             },
           ),
           Divider(color: AppColors.border.withValues(alpha: 0.5), height: 1),
@@ -501,6 +539,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 _vibrationEnabled = value;
               });
               await StorageService.setVibrationEnabled(value);
+              FlutterForegroundTask.sendDataToTask('syncSettings');
             },
           ),
           Divider(color: AppColors.border.withValues(alpha: 0.5), height: 1),
@@ -549,6 +588,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                           _alarmDuration = value;
                         });
                         await StorageService.setAlarmDuration(value);
+                        FlutterForegroundTask.sendDataToTask('syncSettings');
                       }
                     },
                   ),

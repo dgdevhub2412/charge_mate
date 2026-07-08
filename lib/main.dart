@@ -1,11 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'app_colors.dart';
 import 'screens/home_screen.dart';
 import 'services/storage_service.dart';
+import 'services/background_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Initialize communication port for background service isolates
+  FlutterForegroundTask.initCommunicationPort();
+  
   await StorageService.init();
+  await BackgroundService.init();
+  
   runApp(const MyApp());
 }
 
